@@ -106,8 +106,9 @@ class COCO:
             for cat in self.dataset['categories']:
                 cats[cat['id']] = cat
             catToImgs = {cat['id']: [] for cat in self.dataset['categories']}
-            for ann in self.dataset['annotations']:
-                catToImgs[ann['category_id']] += [ann['image_id']]
+            if 'annotations' in self.dataset:
+                for ann in self.dataset['annotations']:
+                    catToImgs[ann['category_id']] += [ann['image_id']]
 
         print 'index created!'
 
@@ -240,10 +241,13 @@ class COCO:
         if len(anns) == 0:
             return 0
         if 'segmentation' in anns[0]:
-            datasetType = 'instances'
+            if 'bbox' in anns[0]:
+                datasetType = 'detections'
+            else:
+                datasetType = 'segmentations'
         elif 'caption' in anns[0]:
             datasetType = 'captions'
-        if datasetType == 'instances':
+        if datasetType == 'segmentations':
             ax = plt.gca()
             polygons = []
             color = []
@@ -273,11 +277,27 @@ class COCO:
                     ax.imshow(np.dstack( (img, m*0.5) ))
             p = PatchCollection(polygons, facecolors=color, edgecolors=(0,0,0,1), linewidths=3, alpha=0.4)
             ax.add_collection(p)
+        elif datasetType == 'detections':
+            ax = plt.gca()
+            colors = plt.cm.hsv(np.linspace(0, 1, 91)).tolist()
+            for ann in anns:
+                cat_id = ann['category_id']
+                color = colors[cat_id]
+                bbox = ann['bbox']
+                coords = (bbox[0], bbox[1]), bbox[2], bbox[3]
+                ax.add_patch(plt.Rectangle(*coords, fill=False, edgecolor=color, linewidth=3))
+                name = 'Unknown'
+                for cat in self.dataset['categories']:
+                    if ann['category_id'] == cat['id']:
+                        name = cat['name']
+                score = ann['score']
+                display_text = '%s: %.2f' % (name, score)
+                ax.text(bbox[0], bbox[1], display_text, bbox={'facecolor':color, 'alpha':0.5})
         elif datasetType == 'captions':
             for ann in anns:
                 print ann['caption']
 
-    def loadRes(self, resFile):
+    def loadRes(self, resFile, returnIds=False):
         """
         Load result file and return a result api object.
         :param   resFile (str)     : file name of result file
@@ -323,7 +343,10 @@ class COCO:
 
         res.dataset['annotations'] = anns
         res.createIndex()
-        return res
+        if returnIds:
+            return [res, list(set(annsImgIds))]
+        else:
+            return res
 
     def download( self, tarDir = None, imgIds = [] ):
         '''
