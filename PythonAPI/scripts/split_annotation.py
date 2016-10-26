@@ -4,7 +4,7 @@ import json
 import os
 from pprint import pprint
 import sys
-sys.path.append('..')
+sys.path.append(os.path.dirname(sys.path[0]))
 
 from pycocotools.coco import COCO
 
