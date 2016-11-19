@@ -20,9 +20,9 @@ classdef CocoEval < handle
   %  recThrs    - [0:.01:1] R=101 recall thresholds for evaluation
   %  areaRng    - [...] A=4 object area ranges for evaluation
   %  maxDets    - [1 10 100] M=3 thresholds on max detections per image
-  %  useSegm    - [1] if true evaluate against ground-truth segments
+  %  iouType    - ['segm'] set iouType to 'segm', 'bbox' or 'keypoints'
   %  useCats    - [1] if true use category labels for evaluation
-  % Note: if useSegm=0 the evaluation is run on bounding boxes.
+  % Note: iouType replaced the now DEPRECATED useSegm parameter.
   % Note: if useCats=0 category labels are ignored as in proposal scoring.
   % Note: by default areaRng=[0 1e5; 0 32; 32 96; 96 1e5].^2. These A=4
   % settings correspond to all, small, medium, and large objects, resp.
@@ -83,24 +83,33 @@ classdef CocoEval < handle
   end
   
   methods
-    function ev = CocoEval( cocoGt, cocoDt )
+    function ev = CocoEval( cocoGt, cocoDt, iouType )
       % Initialize CocoEval using coco APIs for gt and dt.
       if(nargin>0), ev.cocoGt = cocoGt; end
       if(nargin>1), ev.cocoDt = cocoDt; end
       if(nargin>0), ev.params.imgIds = sort(ev.cocoGt.getImgIds()); end
       if(nargin>0), ev.params.catIds = sort(ev.cocoGt.getCatIds()); end
+      if(nargin<3), iouType='segm'; end
       ev.params.iouThrs = .5:.05:.95;
       ev.params.recThrs = 0:.01:1;
-      ev.params.areaRng = [0 1e5; 0 32; 32 96; 96 1e5].^2;
-      ev.params.maxDets = [1 10 100];
-      ev.params.useSegm = 1;
+      if( any(strcmp(iouType,{'bbox','segm'})) )
+        ev.params.areaRng = [0 1e5; 0 32; 32 96; 96 1e5].^2;
+        ev.params.maxDets = [1 10 100];
+      elseif( strcmp(iouType,'keypoints') )
+        ev.params.areaRng = [0 1e5; 32 96; 96 1e5].^2;
+        ev.params.maxDets = 20;
+      else
+        error('unknown iouType: %s',iouType);
+      end
+      ev.params.iouType = iouType;
       ev.params.useCats = 1;
     end
     
     function evaluate( ev )
       % Run per image evaluation on given images.
       fprintf('Running per image evaluation...      '); clk=clock;
-      p=ev.params; if(~p.useCats), p.catIds=1; end
+      p=ev.params; if(~p.useCats), p.catIds=1; end; t={'bbox','segm'};
+      if(isfield(p,'useSegm')), p.iouType=t{p.useSegm+1}; end
       p.imgIds=unique(p.imgIds); p.catIds=unique(p.catIds); ev.params=p;
       N=length(p.imgIds); K=length(p.catIds); A=size(p.areaRng,1);
       [nGt,iGt]=getAnnCounts(ev.cocoGt,p.imgIds,p.catIds,p.useCats);
@@ -109,17 +118,23 @@ classdef CocoEval < handle
       for i=1:K*N, if(nGt(i)==0 && nDt(i)==0), continue; end
         gt=ev.cocoGt.data.annotations(iGt(i):iGt(i)+nGt(i)-1);
         dt=ev.cocoDt.data.annotations(iDt(i):iDt(i)+nDt(i)-1);
-        if( p.useSegm )
+        if(~isfield(gt,'ignore')), [gt(:).ignore]=deal(0); end
+        if( strcmp(p.iouType,'segm') )
           im=ev.cocoGt.loadImgs(p.imgIds(is(i))); h=im.height; w=im.width;
           for g=1:nGt(i), s=gt(g).segmentation; if(~isstruct(s))
               gt(g).segmentation=MaskApi.frPoly(s,h,w); end; end
           f='segmentation'; if(isempty(dt)), [dt(:).(f)]=deal(); end
           if(~isfield(dt,f)), s=MaskApi.frBbox(cat(1,dt.bbox),h,w);
             for d=1:nDt(i), dt(d).(f)=s(d); end; end
-        else
+        elseif( strcmp(p.iouType,'bbox') )
           f='bbox'; if(isempty(dt)), [dt(:).(f)]=deal(); end
           if(~isfield(dt,f)), s=MaskApi.toBbox([dt.segmentation]);
             for d=1:nDt(i), dt(d).(f)=s(d,:); end; end
+        elseif( strcmp(p.iouType,'keypoints') )
+          gtIg=[gt.ignore]|[gt.num_keypoints]==0;
+          for g=1:nGt(i), gt(g).ignore=gtIg(g); end
+        else
+          error('unknown iouType: %s',p.iouType);
         end
         q=p; q.imgIds=p.imgIds(is(i)); q.maxDets=max(p.maxDets);
         for j=1:A, q.areaRng=p.areaRng(j,:);
@@ -182,19 +197,19 @@ classdef CocoEval < handle
     function summarize( ev )
       % Compute and display summary metrics for evaluation results.
       if(isempty(ev.eval)), error('Please run accumulate() first'); end
-      ev.stats=zeros(1,12);
-      ev.stats(1) = summarize1(1,':','all',100);
-      ev.stats(2) = summarize1(1,.50,'all',100);
-      ev.stats(3) = summarize1(1,.75,'all',100);
-      ev.stats(4) = summarize1(1,':','small',100);
-      ev.stats(5) = summarize1(1,':','medium',100);
-      ev.stats(6) = summarize1(1,':','large',100);
-      ev.stats(7) = summarize1(0,':','all',1);
-      ev.stats(8) = summarize1(0,':','all',10);
-      ev.stats(9) = summarize1(0,':','all',100);
-      ev.stats(10) = summarize1(0,':','small',100);
-      ev.stats(11) = summarize1(0,':','medium',100);
-      ev.stats(12) = summarize1(0,':','large',100);
+      if( any(strcmp(ev.params.iouType,{'bbox','segm'})) )
+        k=100; M={{1,':','all',k},{1,.50,'all',k}, {1,.75,'all',k},...
+          {1,':','small',k}, {1,':','medium',k}, {1,':','large',k},...
+          {0,':','all',1}, {0,':','all',10}, {0,':','all',k},...
+          {0,':','small',k}, {0,':','medium',k}, {0,':','large',k}};
+      elseif( strcmp(ev.params.iouType,'keypoints') )
+        k=20; M={{1,':','all',k},{1,.50,'all',k}, {1,.75,'all',k},...
+          {1,':','medium',k}, {1,':','large',k},...
+          {0,':','all',k},{0,.50,'all',k}, {0,.75,'all',k},...
+          {0,':','medium',k}, {0,':','large',k}};
+      end
+      k=length(M); ev.stats=zeros(1,k);
+      for s=1:k, ev.stats(s)=summarize1(M{s}{:}); end
       
       function s = summarize1( ap, iouThr, areaRng, maxDets )
         p=ev.params; i=iouThr; m=find(p.maxDets==maxDets);
@@ -344,7 +359,6 @@ classdef CocoEval < handle
     function e = evaluateImg( gt, dt, params )
       % Run evaluation for a single image and category.
       p=params; T=length(p.iouThrs); aRng=p.areaRng;
-      if(~isfield(gt,'ignore')), [gt(:).ignore]=deal(0); end
       a=[gt.area]; gtIg=[gt.iscrowd]|[gt.ignore]|a<aRng(1)|a>aRng(2);
       G=length(gt); D=length(dt); for g=1:G, gt(g).ignore=gtIg(g); end
       % sort dt highest score first, sort gt ignore last
@@ -352,10 +366,12 @@ classdef CocoEval < handle
       [~,o]=sort([dt.score],'descend'); dt=dt(o);
       if(D>p.maxDets), D=p.maxDets; dt=dt(1:D); end
       % compute iou between each dt and gt region
-      iscrowd = uint8([gt.iscrowd]); t=p.useSegm;
-      if(t), g=[gt.segmentation]; else g=cat(1,gt.bbox); end
-      if(t), d=[dt.segmentation]; else d=cat(1,dt.bbox); end
-      ious=MaskApi.iou(d,g,iscrowd);
+      iscrowd = uint8([gt.iscrowd]);
+      t=find(strcmp(p.iouType,{'segm','bbox','keypoints'}));
+      if(t==1), g=[gt.segmentation]; elseif(t==2), g=cat(1,gt.bbox); end
+      if(t==1), d=[dt.segmentation]; elseif(t==2), d=cat(1,dt.bbox); end
+      if(t<=2), ious=MaskApi.iou(d,g,iscrowd); else
+        ious=CocoEval.oks(gt,dt); end
       % attempt to match each (sorted) dt to each (sorted) gt
       gtm=zeros(T,G); gtIds=[gt.id]; gtIg=[gt.ignore];
       dtm=zeros(T,D); dtIds=[dt.id]; dtIg=zeros(T,D);
@@ -382,6 +398,41 @@ classdef CocoEval < handle
       % store results for given image and category
       dtImgIds=ones(1,D)*p.imgIds; gtImgIds=ones(1,G)*p.imgIds;
       e = {dtIds,gtIds,dtImgIds,gtImgIds,dtm,gtm,[dt.score],dtIg,gtIg};
+    end
+    
+    function o = oks( gt, dt )
+      % Compute Object Keypoint Similarity (OKS) between objects.
+      G=length(gt); D=length(dt); o=zeros(D,G); if(~D||~G), return; end
+      % sigmas hard-coded for person class, will need params eventually
+      sigmas=[.26 .25 .25 .35 .35 .79 .79 .72 .72 .62 ...
+        .62 1.07 1.07 .87 .87 .89 .89]/10;
+      vars=(sigmas*2).^2; k=length(sigmas); m=k*3; bb=cat(1,gt.bbox);
+      % create bounds for ignore regions (double the gt bbox)
+      x0=bb(:,1)-bb(:,3); x1=bb(:,1)+bb(:,3)*2;
+      y0=bb(:,2)-bb(:,4); y1=bb(:,2)+bb(:,4)*2;
+      % extract keypoint locations and visibility flags
+      gKp=cat(1,gt.keypoints); assert(size(gKp,2)==m);
+      dKp=cat(1,dt.keypoints); assert(size(dKp,2)==m);
+      xg=gKp(:,1:3:m); yg=gKp(:,2:3:m); vg=gKp(:,3:3:m);
+      xd=dKp(:,1:3:m); yd=dKp(:,2:3:m);
+      % compute oks between each detection and ground truth object
+      for d=1:D
+        for g=1:G
+          v=vg(g,:); x=xd(d,:); y=yd(d,:); k1=nnz(v);
+          if( k1>0 )
+            % measure the per-keypoint distance if keypoints visible
+            dx=x-xg(g,:); dy=y-yg(g,:);
+          else
+            % measure minimum distance to keypoints in (x0,y0) & (x1,y1)
+            dx=max(0,x0(g,:)-x)+max(0,x-x1(g,:));
+            dy=max(0,y0(g,:)-y)+max(0,y-y1(g,:));
+          end
+          % use the distances to compute the oks
+          e=(dx.^2+dy.^2)./vars/gt(g).area/2;
+          if(k1>0), e=e(v>0); else k1=k; end
+          o(d,g)=sum(exp(-e))/k1;
+        end
+      end
     end
   end
 end
