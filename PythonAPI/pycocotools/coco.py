@@ -290,8 +290,11 @@ class COCO:
                 for cat in self.dataset['categories']:
                     if ann['category_id'] == cat['id']:
                         name = cat['name']
-                score = ann['score']
-                display_text = '%s: %.2f' % (name, score)
+                if 'score' in ann:
+                    score = ann['score']
+                    display_text = '%s: %.2f' % (name, score)
+                else:
+                    display_text = name
                 ax.text(bbox[0], bbox[1], display_text, bbox={'facecolor':color, 'alpha':0.5})
         elif datasetType == 'captions':
             for ann in anns:
