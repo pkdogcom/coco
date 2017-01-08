@@ -21,7 +21,7 @@ imgset_dir = "{}/ImageSets".format(coco_data_dir)
 # The directory which stores the image id and size info.
 out_dir = "{}/data/coco".format(CAFFE_ROOT)
 if not os.path.exists(out_dir):
-    os.maekdirs(out_dir)
+    os.makedirs(out_dir)
 
 ### Get image size info ###
 for i in xrange(0, len(anno_sets)):
