@@ -13,6 +13,8 @@ cocoGt=CocoApi(annFile);
 %% initialize COCO detections api
 resFile='%s/results/%s_%s_fake%s100_results.json';
 resFile=sprintf(resFile,dataDir,prefix,dataType,type);
+analyzeOutDir='%s/results/%s_%s_fake%s100_results_analysis';
+analyzeOutDir=sprintf(analyzeOutDir,dataDir,prefix,dataType,type);
 cocoDt=cocoGt.loadRes(resFile);
 
 %% visialuze gt and dt side by side
@@ -34,7 +36,7 @@ res = gason(fileread(resFile)); disp(res)
 if(0), f=fopen(resFile,'w'); fwrite(f,gason(res)); fclose(f); end
 
 %% run COCO evaluation code (see CocoEval.m)
-cocoEval=CocoEval(cocoGt,cocoDt,type);
+cocoEval=CocoEval(cocoGt,cocoDt,type,analyzeOutDir);
 cocoEval.params.imgIds=imgIds;
 cocoEval.evaluate();
 cocoEval.accumulate();

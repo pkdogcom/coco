@@ -83,13 +83,15 @@ classdef CocoEval < handle
   end
   
   methods
-    function ev = CocoEval( cocoGt, cocoDt, iouType )
+    function ev = CocoEval( cocoGt, cocoDt, iouType, analyzeOutDir )
       % Initialize CocoEval using coco APIs for gt and dt.
       if(nargin>0), ev.cocoGt = cocoGt; end
       if(nargin>1), ev.cocoDt = cocoDt; end
       if(nargin>0), ev.params.imgIds = sort(ev.cocoGt.getImgIds()); end
       if(nargin>0), ev.params.catIds = sort(ev.cocoGt.getCatIds()); end
       if(nargin<3), iouType='segm'; end
+      if(nargin<4), analyzeOutDir='./analyze'; end
+      ev.params.analyzeOutDir = analyzeOutDir;
       ev.params.iouThrs = .5:.05:.95;
       ev.params.recThrs = 0:.01:1;
       if( any(strcmp(iouType,{'bbox','segm'})) )
@@ -293,7 +295,7 @@ classdef CocoEval < handle
     
     function analyze( ev )
       % Derek Hoiem style analyis of false positives.
-      outDir='./analyze'; if(~exist(outDir,'dir')), mkdir(outDir); end
+      outDir=ev.params.analyzeOutDir; if(~exist(outDir,'dir')), mkdir(outDir); end
       if(~isfield(ev.cocoGt.data.annotations,'ignore')),
         [ev.cocoGt.data.annotations.ignore]=deal(0); end
       dt=ev.cocoDt; gt=ev.cocoGt; prm=ev.params; rs=prm.recThrs;
@@ -330,7 +332,7 @@ classdef CocoEval < handle
       sup={ev.cocoGt.loadCats(catIds).supercategory};
       for k=unique(sup), ps1=mean(ps(:,:,strcmp(sup,k),:),3);
         makeplot(rs,ps1,outDir,['overall-' k{1}]); end
-      
+
       function makeplot( rs, ps, outDir, nm )
         % Plot FP breakdown using area plot.
         fprintf('Plotting results...                  '); t=clock;
