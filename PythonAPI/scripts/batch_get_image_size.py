@@ -9,7 +9,7 @@ CURDIR = os.path.dirname(os.path.realpath(__file__))
 # If true, redo the whole thing.
 redo = True
 # The caffe root.
-CAFFE_ROOT = "{}/projects/caffe".format(HOMEDIR)
+CAFFE_ROOT = "/opt/caffe"
 # The root directory which stores the coco images, annotations, etc.
 coco_data_dir = "{}/data/coco".format(HOMEDIR)
 # The sets that we want to get the size info.
